@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Свободная музыка</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#2447f5">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Музыка">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<style>
+:root{--bg:#eef0f2;--ink:#14202b;--mute:#667482;--line:#cfd6dc;--card:#fff;--acc:#2447f5;--accink:#fff}
+@media (prefers-color-scheme:dark){:root{--bg:#10171d;--ink:#e8edf1;--mute:#8d9aa6;--line:#26323c;--card:#18222b;--acc:#7b94ff;--accink:#0b1220}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
+main{max-width:760px;margin:0 auto;padding:28px 16px 90px}
+h1{font-size:2rem;line-height:1.15;margin:0 0 6px;letter-spacing:-.02em}
+.sub{color:var(--mute);margin:0 0 22px;max-width:56ch}
+form{display:flex;gap:8px;flex-wrap:wrap}
+input,select,button{font:inherit;color:inherit}
+input[type=search]{flex:1 1 220px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--card)}
+select{padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--card)}
+button{cursor:pointer}
+.go{padding:12px 20px;border:0;border-radius:10px;background:var(--acc);color:var(--accink);font-weight:600}
+:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+#status{margin:18px 0 8px;color:var(--mute)}
+.item{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:10px}
+.item h3{margin:0;font-size:1.05rem}
+.meta{color:var(--mute);font-size:.9rem}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.btn{padding:7px 12px;border:1px solid var(--line);border-radius:8px;background:transparent;text-decoration:none;color:inherit;font-size:.92rem}
+.btn.best{background:var(--acc);border-color:var(--acc);color:var(--accink);font-weight:600}
+.files{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}
+.file{display:flex;justify-content:space-between;gap:10px;padding:6px 0;font-size:.92rem;align-items:center}
+.file span{overflow-wrap:anywhere}
+.tag{font-weight:600}
+.lic{font-size:.8rem;color:var(--mute)}
+#player{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);padding:10px 16px;display:none}
+#player div{max-width:760px;margin:0 auto}
+#player audio{width:100%}
+#pt{font-size:.85rem;color:var(--mute);margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+</style>
+</head>
+<body>
+<main>
+<h1>Свободная музыка</h1>
+<p class="sub">Поиск по Internet Archive: только треки с лицензией Creative Commons или в общественном достоянии — их можно скачивать легально и бесплатно.</p>
+
+<form id="f">
+  <input type="search" id="q" placeholder="Исполнитель, альбом или жанр" aria-label="Поиск" required>
+  <select id="fmt" aria-label="Качество">
+    <option value="any">Любое качество</option>
+    <option value="lossless">Только без потерь (FLAC)</option>
+    <option value="hq">MP3 от 256 кбит/с и выше</option>
+  </select>
+  <button class="go" type="submit">Найти</button>
+</form>
+
+<div id="status" aria-live="polite">Введите запрос, например «jazz» или «ambient».</div>
+<div id="list"></div>
+</main>
+
+<div id="player"><div><div id="pt"></div><audio id="au" controls></audio></div></div>
+
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// Ранг качества: чем больше, тем лучше
+const RANK={'Flac':100,'24bit Flac':110,'WAVE':95,'320Kbps MP3':80,'256Kbps MP3':70,'VBR MP3':65,'Ogg Vorbis':60,'192Kbps MP3':50,'128Kbps MP3':40,'64Kbps MP3':20,'MP3':45};
+const LABEL={'Flac':'FLAC','24bit Flac':'FLAC 24 бит','WAVE':'WAV','320Kbps MP3':'MP3 320','256Kbps MP3':'MP3 256','VBR MP3':'MP3 VBR','Ogg Vorbis':'OGG','192Kbps MP3':'MP3 192','128Kbps MP3':'MP3 128','64Kbps MP3':'MP3 64','MP3':'MP3'};
+const size=b=>{b=+b;if(!b)return'';return b>1e9?(b/1e9).toFixed(1)+' ГБ':b>1e6?(b/1e6).toFixed(1)+' МБ':Math.round(b/1e3)+' КБ'};
+const licName=u=>!u?'':/publicdomain|zero/i.test(u)?'Общественное достояние':'Creative Commons';
+
+async function search(q,fmt){
+  const lic='(licenseurl:*creativecommons.org* OR licenseurl:*publicdomain*)';
+  const extra=fmt==='lossless'?' AND format:Flac':fmt==='hq'?' AND (format:Flac OR format:"320Kbps MP3" OR format:"256Kbps MP3" OR format:"VBR MP3")':'';
+  const query=`(${q}) AND mediatype:audio AND ${lic}${extra}`;
+  const p=new URLSearchParams({q:query,rows:30,output:'json','sort[]':'downloads desc'});
+  ['identifier','title','creator','licenseurl'].forEach(f=>p.append('fl[]',f));
+  const r=await fetch('https://archive.org/advancedsearch.php?'+p);
+  if(!r.ok)throw new Error('Ошибка '+r.status);
+  return (await r.json()).response.docs;
+}
+
+async function loadFiles(id){
+  const r=await fetch('https://archive.org/metadata/'+encodeURIComponent(id));
+  if(!r.ok)throw new Error('Ошибка '+r.status);
+  const m=await r.json();
+  const files=(m.files||[]).filter(f=>RANK[f.format]&&f.source==='original'||RANK[f.format]&&/derivative/.test(f.source||''))
+    .filter(f=>RANK[f.format]);
+  files.sort((a,b)=>RANK[b.format]-RANK[a.format]||a.name.localeCompare(b.name,undefined,{numeric:true}));
+  return {files,title:m.metadata?.title};
+}
+
+const url=(id,name)=>`https://archive.org/download/${encodeURIComponent(id)}/${name.split('/').map(encodeURIComponent).join('/')}`;
+
+function play(id,f){
+  $('#player').style.display='block';
+  $('#pt').textContent=f.title||f.name;
+  $('#au').src=url(id,f.name);$('#au').play().catch(()=>{});
+}
+
+function render(docs){
+  const list=$('#list');list.innerHTML='';
+  docs.forEach(d=>{
+    const el=document.createElement('article');el.className='item';
+    el.innerHTML=`<h3>${esc(d.title)}</h3>
+      <div class="meta">${esc([].concat(d.creator||'Неизвестный исполнитель').join(', '))}</div>
+      <div class="lic">${licName([].concat(d.licenseurl||[])[0])}</div>
+      <div class="row"><button class="btn best" type="button">Показать файлы</button>
+      <a class="btn" target="_blank" rel="noopener" href="https://archive.org/details/${encodeURIComponent(d.identifier)}">Страница</a></div>
+      <div class="files" hidden></div>`;
+    const btn=el.querySelector('button'),box=el.querySelector('.files');
+    let loaded=false;
+    btn.onclick=async()=>{
+      if(loaded){box.hidden=!box.hidden;return}
+      btn.textContent='Загрузка…';
+      try{
+        const {files}=await loadFiles(d.identifier);
+        loaded=true;btn.textContent='Скрыть / показать файлы';box.hidden=false;
+        if(!files.length){box.textContent='Аудиофайлы не найдены.';return}
+        const bestRank=RANK[files[0].format];
+        box.innerHTML='';
+        files.slice(0,40).forEach(f=>{
+          const row=document.createElement('div');row.className='file';
+          row.innerHTML=`<span>${esc(f.title||f.name)}<br><span class="meta"><span class="tag">${LABEL[f.format]}</span> ${size(f.size)}</span></span>
+            <span class="row" style="margin:0"><button class="btn" type="button">▶</button>
+            <a class="btn ${RANK[f.format]===bestRank?'best':''}" href="${url(d.identifier,f.name)}" download>Скачать</a></span>`;
+          row.querySelector('button').onclick=()=>play(d.identifier,f);
+          box.appendChild(row);
+        });
+      }catch(e){btn.textContent='Показать файлы';alert('Не удалось загрузить файлы: '+e.message)}
+    };
+    list.appendChild(el);
+  });
+}
+
+$('#f').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const q=$('#q').value.trim();if(!q)return;
+  $('#status').textContent='Ищу…';$('#list').innerHTML='';
+  try{
+    const docs=await search(q,$('#fmt').value);
+    $('#status').textContent=docs.length?`Найдено: ${docs.length}. Лучшее качество подсвечено синим.`:'Ничего не найдено. Попробуйте другой запрос или слова на английском.';
+    render(docs);
+  }catch(err){
+    $('#status').textContent='Ошибка поиска: '+err.message+'. Проверьте интернет и откройте файл прямо в браузере (не во вложении).';
+  }
+});
+if('serviceWorker' in navigator){addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}))}
+</script>
+</body>
+</html>
