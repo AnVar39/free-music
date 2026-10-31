@@ -1,0 +1,11 @@
+{
+  "name": "free-music",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Поиск легально бесплатной музыки (Internet Archive)",
+  "dependencies": {
+    "@capacitor/android": "6.2.1",
+    "@capacitor/cli": "6.2.1",
+    "@capacitor/core": "6.2.1"
+  }
+}

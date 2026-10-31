@@ -1,10 +1,12 @@
 {
+  "id": "./",
   "name": "Свободная музыка",
   "short_name": "Музыка",
   "description": "Поиск легальной бесплатной музыки (CC и общественное достояние)",
-  "start_url": "./index.html",
+  "start_url": "./",
   "scope": "./",
   "display": "standalone",
+  "orientation": "any",
   "background_color": "#10171d",
   "theme_color": "#2447f5",
   "lang": "ru",

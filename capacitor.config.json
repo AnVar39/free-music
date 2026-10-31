@@ -1,0 +1,8 @@
+{
+  "appId": "com.freemusic.app",
+  "appName": "Свободная музыка",
+  "webDir": "www",
+  "plugins": {
+    "CapacitorHttp": { "enabled": true }
+  }
+}
